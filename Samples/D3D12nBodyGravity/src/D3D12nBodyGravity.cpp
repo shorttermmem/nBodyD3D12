@@ -57,7 +57,7 @@ D3D12nBodyGravity::D3D12nBodyGravity(UINT width, UINT height, std::wstring name)
 	ZeroMemory (m_graphicsFenceValues, sizeof (m_graphicsFenceValues));
 	ZeroMemory (m_graphicsCopyFenceValues, sizeof (m_graphicsCopyFenceValues));
 
-    m_srvIndex = 0;
+	m_srvIndex = 0;
 
 	m_computeFenceValue = 1;
 	m_graphicsFenceValue = 1;
@@ -89,12 +89,12 @@ void D3D12nBodyGravity::LoadPipeline()
 		{
 			debugController->EnableDebugLayer();
 
-            ComPtr<ID3D12Debug1> debugController1;
-            debugController->QueryInterface (IID_PPV_ARGS (&debugController1));
+			ComPtr<ID3D12Debug1> debugController1;
+			debugController->QueryInterface (IID_PPV_ARGS (&debugController1));
 
-            debugController1->SetEnableGPUBasedValidation (true);
+			debugController1->SetEnableGPUBasedValidation (true);
 		}
-    }
+	}
 #endif
 
 	ComPtr<IDXGIFactory4> factory;
@@ -209,16 +209,16 @@ void D3D12nBodyGravity::LoadPipeline()
 			SetName (m_graphicsCommandLists[i].Get (), buffer);
 			m_graphicsCommandLists[i]->Close ();
 
-            swprintf_s (buffer, L"m_graphicsAllocators[%i]", i);
-            SetName (m_graphicsAllocators [i].Get (), buffer);
+			swprintf_s (buffer, L"m_graphicsAllocators[%i]", i);
+			SetName (m_graphicsAllocators [i].Get (), buffer);
 
 			ThrowIfFailed (m_device->CreateCommandAllocator (D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS (&m_graphicsCopyAllocators[i])));
 			ThrowIfFailed (m_device->CreateCommandList (0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_graphicsCopyAllocators[i].Get (), nullptr, IID_PPV_ARGS (&m_graphicsCopyCommandLists[i])));
 
 			swprintf_s (buffer, L"m_graphicsCopyCommandLists[%i]", i);
 			SetName (m_graphicsCopyCommandLists[i].Get (), buffer);
-            swprintf_s (buffer, L"m_graphicsCopyAllocators[%i]", i);
-            SetName (m_graphicsCopyAllocators [i].Get (), buffer);
+			swprintf_s (buffer, L"m_graphicsCopyAllocators[%i]", i);
+			SetName (m_graphicsCopyAllocators [i].Get (), buffer);
 
 			ThrowIfFailed (m_device->CreateFence (0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS (&m_graphicsCopyFences[i])));
 
@@ -241,8 +241,8 @@ void D3D12nBodyGravity::LoadPipeline()
 			wchar_t buffer[64] = {};
 			swprintf_s (buffer, L"m_computeCommandLists[%i] (compute queue)", i);
 			SetName (m_computeCommandLists[i].Get (), buffer);
-            swprintf_s (buffer, L"m_computeAllocators[%i]", i);
-            SetName (m_computeAllocators [i].Get (), buffer);
+			swprintf_s (buffer, L"m_computeAllocators[%i]", i);
+			SetName (m_computeAllocators [i].Get (), buffer);
 
 			m_computeCommandLists[i]->Close ();
 		}
@@ -256,8 +256,8 @@ void D3D12nBodyGravity::LoadPipeline()
 			wchar_t buffer[64] = {};
 			swprintf_s (buffer, L"m_computeCommandLists[%i] (graphics queue)", i);
 			SetName (m_computeCommandLists[i].Get (), buffer);
-            swprintf_s (buffer, L"m_computeAllocators[%i]", i);
-            SetName (m_computeAllocators [i].Get (), buffer);
+			swprintf_s (buffer, L"m_computeAllocators[%i]", i);
+			SetName (m_computeAllocators [i].Get (), buffer);
 
 			ThrowIfFailed (m_device->CreateFence (0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS (&m_computeFences [i])));
 
@@ -634,7 +634,7 @@ void D3D12nBodyGravity::CreateParticleBuffers()
 
 	SetName(m_particleBuffer0.Get(), L"m_particleBuffer0");
 	SetName(m_particleBuffer1.Get(), L"m_particleBuffer1");
-    SetName(m_particleBufferForDraw.Get (), L"m_particleBufferForDraw");
+	SetName(m_particleBufferForDraw.Get (), L"m_particleBufferForDraw");
 
 	D3D12_SUBRESOURCE_DATA particleData = {};
 	particleData.pData = reinterpret_cast<UINT8*>(&data[0]);
@@ -674,8 +674,8 @@ void D3D12nBodyGravity::CreateParticleBuffers()
 	m_device->CreateUnorderedAccessView(m_particleBuffer0.Get(), nullptr, &uavDesc, uavHandle0);
 	m_device->CreateUnorderedAccessView(m_particleBuffer1.Get(), nullptr, &uavDesc, uavHandle1);
 
-    CD3DX12_CPU_DESCRIPTOR_HANDLE copyHandle (m_srvUavHeap->GetCPUDescriptorHandleForHeapStart (), SrvParticleForDraw, m_srvUavDescriptorSize);
-    m_device->CreateShaderResourceView (m_particleBufferForDraw.Get (), &srvDesc, copyHandle);
+	CD3DX12_CPU_DESCRIPTOR_HANDLE copyHandle (m_srvUavHeap->GetCPUDescriptorHandleForHeapStart (), SrvParticleForDraw, m_srvUavDescriptorSize);
+	m_device->CreateShaderResourceView (m_particleBufferForDraw.Get (), &srvDesc, copyHandle);
 }
 
 // Update frame-based values.
@@ -703,7 +703,7 @@ void D3D12nBodyGravity::OnRender()
 		PIXBeginEvent (m_computeCommandQueue.Get (), 0, L"Simulate");
 		m_computeCommandQueue->Wait (m_graphicsCopyFences [m_lastFrameIndex].Get (), m_graphicsCopyFenceValues [m_lastFrameIndex]);
 	} else {
-        PIXBeginEvent (m_graphicsCommandQueue.Get (), 0, L"Simulate");
+		PIXBeginEvent (m_graphicsCommandQueue.Get (), 0, L"Simulate");
 	}
 	RecordComputeCommandList ();
 
@@ -725,7 +725,7 @@ void D3D12nBodyGravity::OnRender()
 	RecordCopyCommandList ();
 
 	ppCommandLists[0] = { m_graphicsCopyCommandLists[m_frameIndex].Get () };
-    
+	
 	// Wait for compute fence to finish
 	if (AsynchronousComputeEnabled) {
 		m_graphicsCommandQueue->Wait (m_computeFences [m_frameIndex].Get (), m_computeFenceValues [m_frameIndex]);
@@ -734,7 +734,7 @@ void D3D12nBodyGravity::OnRender()
 	// Execute copy
 	m_graphicsCommandQueue->ExecuteCommandLists (1, ppCommandLists);
 	if (AsynchronousComputeEnabled) {
-        m_graphicsCopyFenceValues [m_frameIndex] = m_graphicsCopyFenceValue;
+		m_graphicsCopyFenceValues [m_frameIndex] = m_graphicsCopyFenceValue;
 		m_graphicsCommandQueue->Signal (m_graphicsCopyFences [m_frameIndex].Get (), m_graphicsCopyFenceValue);
 	}
 	
@@ -746,7 +746,7 @@ void D3D12nBodyGravity::OnRender()
 	ppCommandLists[0] = { m_graphicsCommandLists[m_frameIndex].Get() };
 	m_graphicsCommandQueue->ExecuteCommandLists(1, ppCommandLists);
 	if (AsynchronousComputeEnabled) {
-        m_graphicsFenceValues [m_frameIndex] = m_graphicsFenceValue;
+		m_graphicsFenceValues [m_frameIndex] = m_graphicsFenceValue;
 		m_graphicsCommandQueue->Signal (m_graphicsFences [m_frameIndex].Get (), m_graphicsFenceValue);
 	}
 	PIXEndEvent (m_graphicsCommandQueue.Get ());
@@ -827,7 +827,7 @@ void D3D12nBodyGravity::RecordRenderCommandList ()
 	// Record commands.
 	const float clearColor[] = { 0.0f, 0.0f, 0.1f, 0.0f };
 	commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
-    
+	
 	D3D12_VIEWPORT viewport;
 	viewport.TopLeftX = 0;
 	viewport.TopLeftY = 0;
@@ -850,10 +850,10 @@ void D3D12nBodyGravity::RecordRenderCommandList ()
 		m_particleBufferForDraw.Get (),
 		D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
 		D3D12_RESOURCE_STATE_COPY_DEST);
-    barriers [1] = CD3DX12_RESOURCE_BARRIER::Transition (
-        m_renderTargets [m_frameIndex].Get (), 
-        D3D12_RESOURCE_STATE_RENDER_TARGET, 
-        D3D12_RESOURCE_STATE_PRESENT);
+	barriers [1] = CD3DX12_RESOURCE_BARRIER::Transition (
+		m_renderTargets [m_frameIndex].Get (), 
+		D3D12_RESOURCE_STATE_RENDER_TARGET, 
+		D3D12_RESOURCE_STATE_PRESENT);
 
 	commandList->ResourceBarrier (2, barriers);
 
@@ -890,7 +890,7 @@ void D3D12nBodyGravity::RecordComputeCommandList()
 void D3D12nBodyGravity::Simulate()
 {
 	ID3D12GraphicsCommandList* pCommandList = m_computeCommandLists[m_frameIndex].Get();
-    PIXScopedEvent (pCommandList, 0, "Simulation step");
+	PIXScopedEvent (pCommandList, 0, "Simulation step");
 
 	UINT srvIndex;
 	UINT uavIndex;
@@ -982,7 +982,7 @@ void D3D12nBodyGravity::MoveToNextFrame ()
 	// Update the frame index.
 	m_lastFrameIndex = m_frameIndex;
 	m_frameIndex = m_swapChain->GetCurrentBackBufferIndex ();
-    
+	
 	// If the next frame is not ready to be rendered yet, wait until it is ready.
 	WaitForFence (m_frameFences[m_frameIndex].Get (),
 		m_frameFenceValues[m_frameIndex], m_frameFenceEvents[m_frameIndex]);

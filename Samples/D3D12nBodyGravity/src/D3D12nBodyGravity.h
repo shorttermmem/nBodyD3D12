@@ -129,15 +129,15 @@ private:
 	ComPtr<ID3D12Resource> m_constantBufferCS;
 
 	UINT m_srvIndex;		// Denotes which of the particle buffer resource views is the SRV (0 or 1). The UAV is 1 - srvIndex.
-    UINT GetParticleBufferSrvIndex () const
-    {
-        return m_srvIndex;
-    }
+	UINT GetParticleBufferSrvIndex () const
+	{
+		return m_srvIndex;
+	}
 
-    UINT GetParticleBufferUavIndex () const
-    {
-        return 1 - m_srvIndex;
-    }
+	UINT GetParticleBufferUavIndex () const
+	{
+		return 1 - m_srvIndex;
+	}
 
 	SimpleCamera m_camera;
 	StepTimer m_timer;
