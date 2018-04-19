@@ -131,7 +131,6 @@ void D3D12nBodyGravity::LoadPipeline()
 	ThrowIfFailed(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_graphicsCommandQueue)));
 	NAME_D3D12_OBJECT(m_graphicsCommandQueue);
 
-	m_device->SetStablePowerState (true);
 	m_graphicsCommandQueue->GetTimestampFrequency (&m_frequency);
 
 	// Describe and create the swap chain.
@@ -930,8 +929,6 @@ void D3D12nBodyGravity::Simulate()
 
 void D3D12nBodyGravity::OnDestroy()
 {
-	m_device->SetStablePowerState (false);
-
 	// Ensure the GPU is done rendering.
 	// Wait for all fences
 	for (int i = 0; i < FrameCount; ++i) {
