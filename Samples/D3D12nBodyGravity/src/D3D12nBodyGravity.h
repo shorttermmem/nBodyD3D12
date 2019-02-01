@@ -98,6 +98,7 @@ private:
 	HANDLE m_uploadEvent;
 	UINT64 m_uploadFenceValue;
 
+	ComPtr<ID3D12CommandQueue> m_copyCommandQueue;
 	ComPtr<ID3D12CommandQueue> m_graphicsCommandQueue;
 	ComPtr<ID3D12RootSignature> m_rootSignature;
 	ComPtr<ID3D12RootSignature> m_computeRootSignature;

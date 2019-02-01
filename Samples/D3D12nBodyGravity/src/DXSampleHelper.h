@@ -11,6 +11,20 @@
 
 #pragma once
 
+#include <iostream>
+#include <sstream>
+
+#if defined(_DEBUG)
+#define DLOG( s )                        \
+{                                         \
+   std::wostringstream os_;                \
+   os_ << "\n" << s << "\n";                \
+   OutputDebugStringW( os_.str().c_str() );  \
+}
+#else
+	#define DLOG( s )   
+#endif
+
 inline void ThrowIfFailed(HRESULT hr)
 {
 	if (FAILED(hr))

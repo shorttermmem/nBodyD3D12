@@ -81,6 +81,8 @@ void D3D12nBodyGravity::OnInit()
 // Load the rendering pipeline dependencies.
 void D3D12nBodyGravity::LoadPipeline()
 {
+	UINT dxgiFactoryFlags = 0;
+
 #if defined(_DEBUG)
 	// Enable the D3D12 debug layer.
 	{
@@ -89,16 +91,14 @@ void D3D12nBodyGravity::LoadPipeline()
 		{
 			debugController->EnableDebugLayer();
 
-			ComPtr<ID3D12Debug1> debugController1;
-			debugController->QueryInterface (IID_PPV_ARGS (&debugController1));
-
-			debugController1->SetEnableGPUBasedValidation (true);
+			// Enable additional debug layers.
+			dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
 		}
 	}
 #endif
 
 	ComPtr<IDXGIFactory4> factory;
-	ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
+	ThrowIfFailed(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&factory)));
 
 	if (m_useWarpDevice)
 	{
@@ -132,6 +132,14 @@ void D3D12nBodyGravity::LoadPipeline()
 	NAME_D3D12_OBJECT(m_graphicsCommandQueue);
 
 	m_graphicsCommandQueue->GetTimestampFrequency (&m_frequency);
+
+	// Describe and create the command queue.
+	queueDesc.Type = D3D12_COMMAND_LIST_TYPE_COPY;
+
+	ThrowIfFailed(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_copyCommandQueue)));
+	NAME_D3D12_OBJECT(m_copyCommandQueue);
+
+	m_copyCommandQueue->GetTimestampFrequency(&m_frequency);
 
 	// Describe and create the swap chain.
 	DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
@@ -211,8 +219,11 @@ void D3D12nBodyGravity::LoadPipeline()
 			swprintf_s (buffer, L"m_graphicsAllocators[%i]", i);
 			SetName (m_graphicsAllocators [i].Get (), buffer);
 
-			ThrowIfFailed (m_device->CreateCommandAllocator (D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS (&m_graphicsCopyAllocators[i])));
-			ThrowIfFailed (m_device->CreateCommandList (0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_graphicsCopyAllocators[i].Get (), nullptr, IID_PPV_ARGS (&m_graphicsCopyCommandLists[i])));
+			D3D12_COMMAND_LIST_TYPE copyListType = D3D12_COMMAND_LIST_TYPE_DIRECT;
+			if (AsynchronousComputeEnabled)
+				copyListType = D3D12_COMMAND_LIST_TYPE_COPY;
+			ThrowIfFailed (m_device->CreateCommandAllocator (copyListType, IID_PPV_ARGS (&m_graphicsCopyAllocators[i])));
+			ThrowIfFailed (m_device->CreateCommandList (0, copyListType, m_graphicsCopyAllocators[i].Get (), nullptr, IID_PPV_ARGS (&m_graphicsCopyCommandLists[i])));
 
 			swprintf_s (buffer, L"m_graphicsCopyCommandLists[%i]", i);
 			SetName (m_graphicsCopyCommandLists[i].Get (), buffer);
@@ -318,7 +329,6 @@ void D3D12nBodyGravity::LoadAssets()
 
 		CD3DX12_ROOT_SIGNATURE_DESC computeRootSignatureDesc(_countof(rootParameters), rootParameters, 0, nullptr);
 		ThrowIfFailed(D3D12SerializeRootSignature(&computeRootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error));
-
 		ThrowIfFailed(m_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_computeRootSignature)));
 		NAME_D3D12_OBJECT(m_computeRootSignature);
 	}
@@ -585,6 +595,10 @@ void D3D12nBodyGravity::CreateParticleBuffers()
 	D3D12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(dataSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 	D3D12_RESOURCE_DESC uploadBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(dataSize);
 
+	D3D12_RESOURCE_STATES copyResourceInitialState = D3D12_RESOURCE_STATE_COPY_DEST;
+	if (AsynchronousComputeEnabled)
+		copyResourceInitialState = D3D12_RESOURCE_STATE_COMMON;
+
 		// Create two buffers in the GPU, each with a copy of the particles data.
 		// The compute shader will update one of them while the rendering thread 
 		// renders the other. When rendering completes, the threads will swap 
@@ -594,7 +608,7 @@ void D3D12nBodyGravity::CreateParticleBuffers()
 			&defaultHeapProperties,
 			D3D12_HEAP_FLAG_NONE,
 			&bufferDesc,
-			D3D12_RESOURCE_STATE_COPY_DEST,
+			copyResourceInitialState,
 			nullptr,
 	IID_PPV_ARGS(&m_particleBuffer0)));
 
@@ -602,7 +616,7 @@ void D3D12nBodyGravity::CreateParticleBuffers()
 			&defaultHeapProperties,
 			D3D12_HEAP_FLAG_NONE,
 			&bufferDesc,
-			D3D12_RESOURCE_STATE_COPY_DEST,
+			copyResourceInitialState,
 			nullptr,
 	IID_PPV_ARGS(&m_particleBuffer1)));
 
@@ -626,7 +640,7 @@ void D3D12nBodyGravity::CreateParticleBuffers()
 		&defaultHeapProperties,
 		D3D12_HEAP_FLAG_NONE,
 		&bufferDesc,
-		D3D12_RESOURCE_STATE_COPY_DEST,
+		copyResourceInitialState,
 		nullptr,
 		IID_PPV_ARGS (&m_particleBufferForDraw)));
 
@@ -697,13 +711,25 @@ void D3D12nBodyGravity::OnUpdate()
 // Render the scene.
 void D3D12nBodyGravity::OnRender()
 {
+
+	DLOG("Status: \n\tm_frameIndex: " << m_frameIndex << " \tm_lastFrameIndex: " << m_lastFrameIndex
+		<< "\n\tm_computeFenceValues[FrameCount]: " << m_computeFenceValues[m_frameIndex] << "\tm_computeFenceValue: " << m_computeFenceValue
+		<< "\n\tm_graphicsFenceValues[FrameCount]: " << m_graphicsFenceValues[m_frameIndex] << "\tm_graphicsFenceValue: " << m_graphicsFenceValue
+		<< "\n\tm_graphicsCopyFenceValues[FrameCount]: " << m_graphicsCopyFenceValues[m_frameIndex] << "\tm_graphicsCopyFenceValue: " << m_graphicsCopyFenceValue
+		<< "\n\tm_frameFenceValues[FrameCount]: " << m_frameFenceValues[m_frameIndex] << "\tm_frameFenceValue: " << m_frameFenceValue
+	);
+
+
 	// Wait for graphics fence to finish
 	if (AsynchronousComputeEnabled) {
 		PIXBeginEvent (m_computeCommandQueue.Get (), 0, L"Simulate");
 		m_computeCommandQueue->Wait (m_graphicsCopyFences [m_lastFrameIndex].Get (), m_graphicsCopyFenceValues [m_lastFrameIndex]);
+
+		DLOG("\t=>m_computeCommandQueue->Wait(" << "m_graphicsCopyFences["<< m_lastFrameIndex <<"]: " << m_graphicsCopyFenceValues[m_lastFrameIndex]  )
 	} else {
 		PIXBeginEvent (m_graphicsCommandQueue.Get (), 0, L"Simulate");
 	}
+
 	RecordComputeCommandList ();
 
 	// Close and execute the command list.
@@ -713,44 +739,64 @@ void D3D12nBodyGravity::OnRender()
 		m_computeCommandQueue->ExecuteCommandLists (1, ppCommandLists);
 		m_computeFenceValues [m_frameIndex] = m_computeFenceValue;
 		m_computeCommandQueue->Signal (m_computeFences [m_frameIndex].Get (), m_computeFenceValue);
+
+		DLOG("\t=>m_computeCommandQueue->Signal(" << "m_computeFences[" << m_frameIndex << "]: " << m_computeFenceValues[m_frameIndex])
+
 		PIXEndEvent (m_computeCommandQueue.Get ());
 	} else {
 		m_graphicsCommandQueue->ExecuteCommandLists (1, ppCommandLists);
 		PIXEndEvent (m_graphicsCommandQueue.Get ());
 	}
-
 	++m_computeFenceValue;
 
-	RecordCopyCommandList ();
-
-	ppCommandLists[0] = { m_graphicsCopyCommandLists[m_frameIndex].Get () };
-	
 	// Wait for compute fence to finish
 	if (AsynchronousComputeEnabled) {
-		m_graphicsCommandQueue->Wait (m_computeFences [m_frameIndex].Get (), m_computeFenceValues [m_frameIndex]);
+		PIXBeginEvent(m_copyCommandQueue.Get(), 0, L"Copy");
+		m_copyCommandQueue->Wait (m_computeFences [m_frameIndex].Get (), m_computeFenceValues [m_frameIndex]);
+		DLOG("\t=>m_graphicsCommandQueue->Wait(" << "m_computeFences[" << m_frameIndex << "]: " << m_computeFenceValues[m_frameIndex])
+	}
+	else
+	{
+		PIXBeginEvent(m_graphicsCommandQueue.Get(), 0, L"Copy");
 	}
 
-	// Execute copy
-	m_graphicsCommandQueue->ExecuteCommandLists (1, ppCommandLists);
+	RecordCopyCommandList();
+	ppCommandLists[0] = { m_graphicsCopyCommandLists[m_frameIndex].Get() };
+
 	if (AsynchronousComputeEnabled) {
+		m_copyCommandQueue->ExecuteCommandLists(1, ppCommandLists);
+
 		m_graphicsCopyFenceValues [m_frameIndex] = m_graphicsCopyFenceValue;
-		m_graphicsCommandQueue->Signal (m_graphicsCopyFences [m_frameIndex].Get (), m_graphicsCopyFenceValue);
+		m_copyCommandQueue->Signal (m_graphicsCopyFences [m_frameIndex].Get (), m_graphicsCopyFenceValue);
+		DLOG("\t=>m_graphicsCommandQueue->Signal(" << "m_graphicsCopyFences[" << m_frameIndex << "]: " << m_graphicsCopyFences[m_frameIndex])
+
+		PIXEndEvent(m_copyCommandQueue.Get());
+	}
+	else
+	{
+		m_graphicsCommandQueue->ExecuteCommandLists(1, ppCommandLists);
+		PIXEndEvent(m_graphicsCommandQueue.Get());
+	}
+	++m_graphicsCopyFenceValue;
+	
+	if (AsynchronousComputeEnabled) {
+		m_graphicsCommandQueue->Wait (m_graphicsCopyFences[m_frameIndex].Get(), m_graphicsCopyFenceValues[m_frameIndex]);
+		DLOG("\t=>m_graphicsCommandQueue->Wait(" << "m_graphicsCopyFences[" << m_frameIndex << "]: " << m_graphicsCopyFences[m_frameIndex])
+	}
+
+	{
+		PIXBeginEvent(m_graphicsCommandQueue.Get(), 0, L"Render");
+
+		RecordRenderCommandList();
+
+		// Execute the rendering
+		ppCommandLists[0] = { m_graphicsCommandLists[m_frameIndex].Get() };
+		m_graphicsCommandQueue->ExecuteCommandLists(1, ppCommandLists);
+
+		PIXEndEvent(m_graphicsCommandQueue.Get());
+		++m_graphicsFenceValue;
 	}
 	
-	PIXBeginEvent (m_graphicsCommandQueue.Get (), 0, L"Render");
-	++m_graphicsCopyFenceValue;
-	RecordRenderCommandList ();
-
-	// Execute the rendering
-	ppCommandLists[0] = { m_graphicsCommandLists[m_frameIndex].Get() };
-	m_graphicsCommandQueue->ExecuteCommandLists(1, ppCommandLists);
-	if (AsynchronousComputeEnabled) {
-		m_graphicsFenceValues [m_frameIndex] = m_graphicsFenceValue;
-		m_graphicsCommandQueue->Signal (m_graphicsFences [m_frameIndex].Get (), m_graphicsFenceValue);
-	}
-	PIXEndEvent (m_graphicsCommandQueue.Get ());
-	++m_graphicsFenceValue;
-
 	// Present the frame.
 	ThrowIfFailed(m_swapChain->Present(0, 0));
 
@@ -766,26 +812,34 @@ void D3D12nBodyGravity::RecordCopyCommandList ()
 
 	ID3D12Resource* particleBuffer = (GetParticleBufferSrvIndex () == 0) ? m_particleBuffer0.Get () : m_particleBuffer1.Get ();
 
-	D3D12_RESOURCE_BARRIER barriers[2];
-	barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition (
-		particleBuffer,
-		D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
-		D3D12_RESOURCE_STATE_COPY_SOURCE);
+	//D3D12_RESOURCE_BARRIER barriers[2];
+	
+	DLOG("RecordCopyCommandList::GetParticleBufferSrvIndex ()  == " << GetParticleBufferSrvIndex());
+	DLOG("  0 => m_particleBuffer0 " << "\n  1 => m_particleBuffer1 ");
 
-	commandList->ResourceBarrier (1, barriers);
+	//barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition (
+	//	particleBuffer,
+	//	D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+	//	D3D12_RESOURCE_STATE_COMMON);
+	//barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
+	//	m_particleBufferForDraw.Get(),
+	//	D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+	//	D3D12_RESOURCE_STATE_COMMON);
+	//commandList->ResourceBarrier (2, barriers);
+	
 	commandList->CopyResource (m_particleBufferForDraw.Get (), particleBuffer);
 
-	barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition (
-		particleBuffer,
-		D3D12_RESOURCE_STATE_COPY_SOURCE,
-		D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-	barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition (
-		m_particleBufferForDraw.Get (),
-		D3D12_RESOURCE_STATE_COPY_DEST,
-		D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
-		);
-
-	commandList->ResourceBarrier (2, barriers);
+	//barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition (
+	//	particleBuffer,
+	//	D3D12_RESOURCE_STATE_COPY_SOURCE,
+	//	D3D12_RESOURCE_STATE_COMMON);
+	//barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition (
+	//	m_particleBufferForDraw.Get (),
+	//	D3D12_RESOURCE_STATE_COPY_DEST,
+	//	D3D12_RESOURCE_STATE_COMMON
+	//	);
+	//commandList->ResourceBarrier (2, barriers);
+	
 	ThrowIfFailed (commandList->Close ());
 }
 
@@ -875,10 +929,8 @@ void D3D12nBodyGravity::RecordComputeCommandList()
 	ThrowIfFailed (pCommandList->Reset (pCommandAllocator, m_computeState.Get ()));
 
 	// Run the particle simulation multiple steps per frame
-	for (int i = 0; i < 4; ++i) {
-		Simulate ();
-	}
-
+	Simulate ();
+	
 	ThrowIfFailed (pCommandList->Close ());
 
 		// Swap the indices to the SRV and UAV.
@@ -889,7 +941,7 @@ void D3D12nBodyGravity::RecordComputeCommandList()
 void D3D12nBodyGravity::Simulate()
 {
 	ID3D12GraphicsCommandList* pCommandList = m_computeCommandLists[m_frameIndex].Get();
-	PIXScopedEvent (pCommandList, 0, "Simulation step");
+	//PIXScopedEvent (pCommandList, 0, "Simulation step");
 
 	UINT srvIndex;
 	UINT uavIndex;
@@ -906,6 +958,9 @@ void D3D12nBodyGravity::Simulate()
 		uavIndex = UavParticlePosVelo0;
 		pUavResource = m_particleBuffer0.Get();
 	}
+
+	DLOG("UAV Simulate::GetParticleBufferSrvIndex ()  == " << GetParticleBufferSrvIndex());
+	DLOG("  0 => m_particleBuffer1 " << "\n  1 => m_particleBuffer0 ");
 
 	pCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(pUavResource, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
 
